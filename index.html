@@ -47,6 +47,7 @@
 			span.code-special { color: #ca8e00; }
 			span.code-highlight { font-weight: bold; color: #bb00c5; text-decoration: underline; }
 			div.nope { display: none; }
+			p.nope { display: none; }
 		</style>
 
 		<script>
@@ -66,6 +67,12 @@
 				document.getElementById(prevUpmodId + "-" + prevVsyncId).classList.add("nope");
 				prevUpmodId = event.target.id;
 				document.getElementById(prevUpmodId + "-" + prevVsyncId).classList.remove("nope");
+
+				if (event.target.id == "upmod-tps") {
+					document.getElementById("tps-note").classList.remove("nope");
+				} else {
+					document.getElementById("tps-note").classList.add("nope");
+				}
 			}
 
 			function vsyncRadio(event) {
