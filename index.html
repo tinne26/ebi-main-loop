@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1"/>
+		<title>Ebitengine main loop</title>
+
+		<style>
+			body {
+				max-width: 900px;
+				margin: 0 auto;
+				margin-bottom: 116px;
+				font-size: 17px;
+			}
+			h1 {
+				font-size: 26px;
+				font-family: sans-serif;
+				margin-top: 16px;
+				margin-bottom: 12px;
+			}
+			h2 {
+				font-size: 19px;
+				font-family: sans-serif;
+				margin-top: 22px;
+				margin-bottom: 0px;
+			}
+			p.note {
+				color: #666;
+				font-style: italic;
+				margin-bottom: 0;
+				margin-top: 6px;
+
+			}
+			hr {
+				margin: 12px 36px;
+				border: 0 none;
+				height: 1px;
+				color: #ccc;
+				background-color: #ccc;
+			}
+			fieldset + fieldset { margin-top: 8px; }
+			code.block { display: block; white-space: pre-wrap; }
+			span.code-keyword { font-weight: bold; }
+			span.code-func { color: #bb0000; }
+			span.code-comment { color: #7a7a7a; font-style: italic; }
+			span.code-var { color: #08699d; }
+			span.code-special { color: #ca8e00; }
+			span.code-highlight { font-weight: bold; color: #bb00c5; text-decoration: underline; }
+			div.nope { display: none; }
+		</style>
+
+		<script>
+			window.addEventListener('load', onLoad);
+			var prevUpmodId = "upmod-tps";
+			var prevVsyncId = "vsync-on";
+
+			function onLoad() {
+				document.getElementById("upmod-tps").addEventListener('change', upmodRadio);
+				document.getElementById("upmod-immediate").addEventListener('change', upmodRadio);
+				document.getElementById("upmod-wait-input").addEventListener('change', upmodRadio);
+				document.getElementById("vsync-on").addEventListener('change', vsyncRadio);
+				document.getElementById("vsync-off").addEventListener('change', vsyncRadio);
+			}
+
+			function upmodRadio(event) {
+				document.getElementById(prevUpmodId + "-" + prevVsyncId).classList.add("nope");
+				prevUpmodId = event.target.id;
+				document.getElementById(prevUpmodId + "-" + prevVsyncId).classList.remove("nope");
+			}
+
+			function vsyncRadio(event) {
+				document.getElementById(prevUpmodId + "-" + prevVsyncId).classList.add("nope");
+				prevVsyncId = event.target.id;
+				document.getElementById(prevUpmodId + "-" + prevVsyncId).classList.remove("nope");
+			}
+		</script>
+	</head>
+
+	<body>
+		<h1>Ebitengine main loop</h1>
+		<p>Select a configuration to see the resulting main loop structure:</p>
+		<fieldset>
+			<legend>Update mode</legend>
+			<div><input type="radio" id="upmod-tps" name="update-mode" value="tps" checked><label for="upmod-tps">Ticks per second</label></div>
+			<div><input type="radio" id="upmod-immediate" name="update-mode" value="immediate"><label for="upmod-immediate">Immediate</label></div>
+			<div><input type="radio" id="upmod-wait-input" name="update-mode" value="wait-input"><label for="upmod-wait-input">Wait for input</label></div>
+			<p class="note" id="tps-note">The ticks per second will be determined by <code>ebitengine.SetTPS()</code> in this mode (60 by default).</p>
+		</fieldset>
+		<fieldset>
+			<legend>VSync</legend>
+			<div><input type="radio" id="vsync-on" name="vsync" value="true" checked><label for="vsync-on">On</label></div>
+			<div><input type="radio" id="vsync-off" name="vsync" value="false"><label for="vsync-off">Off</label></div>
+		</fieldset>
+		
+		<h2>Resulting main loop pseudo-code</h2>
+
+<div id="upmod-tps-vsync-on">
+<code class="block">
+<span class="code-keyword">while</span> <span class="code-var">gameIsRunning</span><span class="code-keyword">:</span>
+    <span class="code-comment">// update (zero, one or multiple updates can happen in this mode)</span>
+    <span class="code-keyword">for</span> <span class="code-var">clock</span>.<span class="code-func">HasPendingTicks()</span><span class="code-keyword">:</span>
+        <span class="code-var">clock</span>.<span class="code-func">Tick()</span>
+        <span class="code-var">err</span> = <span class="code-var">game</span>.<span class="code-func">Update()</span>
+        <span class="code-keyword">if</span> <span class="code-var">err</span> != <span class="code-special">nil</span><span class="code-keyword">:</span>
+            <span class="code-keyword">return</span> <span class="code-var">err</span>
+
+    <span class="code-comment">// draw</span>
+    <span class="code-var">vsync</span> = <span class="code-var">graphics</span>.<span class="code-func">IsVsyncEnabled()</span> <span class="code-comment">// assume true</span>
+    <span class="code-keyword">if not</span> <span class="code-var">game</span>.<span class="code-func">SkipDraw()</span><span class="code-keyword">:</span>
+        <span class="code-var">game</span>.<span class="code-func">Draw(<span class="code-var">screen</span>)</span>
+        <span class="code-var">graphics</span>.<span class="code-func">SwapBuffer(<span class="code-var">vsync</span>)</span> <span class="code-comment">// vsync on, can <span class="code-highlight">block</span>, no tearing</span>
+    <span class="code-keyword">else if</span> <span class="code-var">vsync</span><span class="code-keyword">:</span>
+        <span class="code-func">sleepUntilFrameEnd()</span> <span class="code-comment">// prevent busy CPU loop</span>
+
+    <span class="code-comment">// ...</span>
+</code>
+<p>Notice that both <code>Update()</code> and <code>Draw()</code> try to operate at their own pace. They can delay each other as they are called sequentially, but both try to keep going at their own rhythm:</p>
+<ul>
+	<li>If <code>Update()</code> calls are instantaneous, <code>Draw()</code> calls will only be blocked by their own vsync.</li>
+	<li><code>Draw()</code> calls can't be instantaneous due to their own vsync blocking, but even if this delays some <code>Update()</code> calls, the fact that updates run on a loop will allow them to catch up if they are fast enough. As a side effect, though, notice that when multiple updates are called consecutively the time that passes between the two is not constant and not necessarily close to a tick's length. Barring severe lag, the specified TPS will be respected in the long run, but in some cases the real time that passes between <code>Update()</code> calls can be very small. This is one of the many reasons you shouldn't use <code>time.Now()</code> or any other time functions inside <code>Update()</code> when using the fixed ticks per second (fixed time loop) mode.</li>
+</ul>
+</div>
+
+<div id="upmod-tps-vsync-off" class="nope">
+<code class="block">
+<span class="code-keyword">while</span> <span class="code-var">gameIsRunning</span><span class="code-keyword">:</span>
+    <span class="code-comment">// update (zero, one or multiple updates can happen in this mode)</span>
+    <span class="code-keyword">for</span> <span class="code-var">clock</span>.<span class="code-func">HasPendingTicks()</span><span class="code-keyword">:</span>
+        <span class="code-var">clock</span>.<span class="code-func">Tick()</span>
+        <span class="code-var">err</span> = <span class="code-var">game</span>.<span class="code-func">Update()</span>
+        <span class="code-keyword">if</span> <span class="code-var">err</span> != <span class="code-special">nil</span><span class="code-keyword">:</span>
+            <span class="code-keyword">return</span> <span class="code-var">err</span>
+
+    <span class="code-comment">// draw</span>
+    <span class="code-var">vsync</span> = <span class="code-var">graphics</span>.<span class="code-func">IsVsyncEnabled()</span> <span class="code-comment">// assume false</span>
+    <span class="code-keyword">if not</span> <span class="code-var">game</span>.<span class="code-func">SkipDraw()</span><span class="code-keyword">:</span>
+        <span class="code-var">game</span>.<span class="code-func">Draw(<span class="code-var">screen</span>)</span>
+        <span class="code-var">graphics</span>.<span class="code-func">SwapBuffer(<span class="code-var">vsync</span>)</span> <span class="code-comment">// vsync off, won't block, might cause tearing</span>
+    <span class="code-keyword">else if</span> <span class="code-var">vsync</span><span class="code-keyword">:</span>
+        <span class="code-func">sleepUntilFrameEnd()</span> <span class="code-comment">// prevent busy CPU loop</span>
+
+    <span class="code-comment">// ...</span>
+</code>
+<p>Notice that since there's no blocking, a lot of power and resources will be consumed. This mode is basically only used for debugging, though one could manually control draw skips and sleep during updates in order to have a lot of control over the looping.</p>
+</div>
+
+<div id="upmod-immediate-vsync-on" class="nope">
+<code class="block">
+<span class="code-keyword">while</span> <span class="code-var">gameIsRunning</span><span class="code-keyword">:</span>
+    <span class="code-comment">// update (no waits preceding the call)</span>
+    <span class="code-var">err</span> = <span class="code-var">game</span>.<span class="code-func">Update()</span>
+    <span class="code-keyword">if</span> <span class="code-var">err</span> != <span class="code-special">nil</span><span class="code-keyword">:</span>
+        <span class="code-keyword">return</span> <span class="code-var">err</span>
+
+    <span class="code-comment">// draw</span>
+    <span class="code-var">vsync</span> = <span class="code-var">graphics</span>.<span class="code-func">IsVsyncEnabled()</span> <span class="code-comment">// assume true</span>
+    <span class="code-keyword">if not</span> <span class="code-var">game</span>.<span class="code-func">SkipDraw()</span><span class="code-keyword">:</span>
+        <span class="code-var">game</span>.<span class="code-func">Draw(<span class="code-var">screen</span>)</span>
+        <span class="code-var">graphics</span>.<span class="code-func">SwapBuffer(<span class="code-var">vsync</span>)</span> <span class="code-comment">// vsync on, can <span class="code-highlight">block</span>, no tearing</span>
+    <span class="code-keyword">else if</span> <span class="code-var">vsync</span><span class="code-keyword">:</span>
+        <span class="code-func">sleepUntilFrameEnd()</span> <span class="code-comment">// prevent busy CPU loop</span>
+
+    <span class="code-comment">// ...</span>
+</code>
+<p>Notice that <code>Update()</code> is only invoked once, not in a loop like on the <code>Ticks per second</code> mode. This mode will make update run at the same rhythm as draw, so if the screen has a refresh rate of 60Hz, both <code>Update()</code> and <code>Draw()</code> will be called 60 times per second.</p>
+</div>
+
+<div id="upmod-immediate-vsync-off" class="nope">
+<code class="block">
+<span class="code-keyword">while</span> <span class="code-var">gameIsRunning</span><span class="code-keyword">:</span>
+    <span class="code-comment">// update (no waits preceding the call)</span>
+    <span class="code-var">err</span> = <span class="code-var">game</span>.<span class="code-func">Update()</span>
+    <span class="code-keyword">if</span> <span class="code-var">err</span> != <span class="code-special">nil</span><span class="code-keyword">:</span>
+        <span class="code-keyword">return</span> <span class="code-var">err</span>
+
+    <span class="code-comment">// draw</span>
+    <span class="code-var">vsync</span> = <span class="code-var">graphics</span>.<span class="code-func">IsVsyncEnabled()</span> <span class="code-comment">// assume false</span>
+    <span class="code-keyword">if not</span> <span class="code-var">game</span>.<span class="code-func">SkipDraw()</span><span class="code-keyword">:</span>
+        <span class="code-var">game</span>.<span class="code-func">Draw(<span class="code-var">screen</span>)</span>
+        <span class="code-var">graphics</span>.<span class="code-func">SwapBuffer(<span class="code-var">vsync</span>)</span> <span class="code-comment">// vsync off, won't block, might cause tearing</span>
+    <span class="code-keyword">else if</span> <span class="code-var">vsync</span><span class="code-keyword">:</span>
+        <span class="code-func">sleepUntilFrameEnd()</span> <span class="code-comment">// prevent busy CPU loop</span>
+
+    <span class="code-comment">// ...</span>
+</code>
+<p>This is a crazy mode. Draws go as fast as possible, without any blocking, and updates are always invoked once before draws, also without any blocking. Don't let your computer catch on fire!</p>
+</div>
+
+<div id="upmod-wait-input-vsync-on" class="nope">
+<code class="block">
+<span class="code-keyword">while</span> <span class="code-var">gameIsRunning</span><span class="code-keyword">:</span>
+    <span class="code-comment">// update</span>
+    <span class="code-func">waitForInput()</span> <span class="code-comment">// will <span class="code-highlight">block</span> indefinitely</span>
+    <span class="code-var">err</span> = <span class="code-var">game</span>.<span class="code-func">Update()</span>
+    <span class="code-keyword">if</span> <span class="code-var">err</span> != <span class="code-special">nil</span><span class="code-keyword">:</span>
+        <span class="code-keyword">return</span> <span class="code-var">err</span>
+
+    <span class="code-comment">// draw</span>
+    <span class="code-var">vsync</span> = <span class="code-var">graphics</span>.<span class="code-func">IsVsyncEnabled()</span> <span class="code-comment">// assume true</span>
+    <span class="code-keyword">if not</span> <span class="code-var">game</span>.<span class="code-func">SkipDraw()</span><span class="code-keyword">:</span>
+        <span class="code-var">game</span>.<span class="code-func">Draw(<span class="code-var">screen</span>)</span>
+        <span class="code-var">graphics</span>.<span class="code-func">SwapBuffer(<span class="code-var">vsync</span>)</span> <span class="code-comment">// vsync on, can <span class="code-highlight">block</span>, no tearing</span>
+    <span class="code-keyword">else if</span> <span class="code-var">vsync</span><span class="code-keyword">:</span>
+        <span class="code-func">sleepUntilFrameEnd()</span> <span class="code-comment">// prevent busy CPU loop</span>
+
+    <span class="code-comment">// ...</span>
+</code>
+<p>This mode is mainly used for low-power applications with lots of idle time. Yeah, you can use Ebitengine to make applications that are not games. The key characteristic in this mode is the indefinite blocking before <code>Update()</code>. Notice though that when input is detected, this will also lead to a <code>Draw()</code> call afterwards, unless the draw is skipped. This means that even moving the mouse around will cause the application to make the GPU work quite a bit, so for true low-power applications you have to make sure to skip all the draws that you can.</p>
+<p>TODO: pseudo-code is not accounting for scheduleFrame()...</p>
+</div>
+
+<div id="upmod-wait-input-vsync-off" class="nope">
+<code class="block">
+<span class="code-keyword">while</span> <span class="code-var">gameIsRunning</span><span class="code-keyword">:</span>
+    <span class="code-comment">// update</span>
+    <span class="code-func">waitForInput()</span> <span class="code-comment">// will <span class="code-highlight">block</span> indefinitely</span>
+    <span class="code-var">err</span> = <span class="code-var">game</span>.<span class="code-func">Update()</span>
+    <span class="code-keyword">if</span> <span class="code-var">err</span> != <span class="code-special">nil</span><span class="code-keyword">:</span>
+        <span class="code-keyword">return</span> <span class="code-var">err</span>
+
+    <span class="code-comment">// draw</span>
+    <span class="code-var">vsync</span> = <span class="code-var">graphics</span>.<span class="code-func">IsVsyncEnabled()</span> <span class="code-comment">// assume false</span>
+    <span class="code-keyword">if not</span> <span class="code-var">game</span>.<span class="code-func">SkipDraw()</span><span class="code-keyword">:</span>
+        <span class="code-var">game</span>.<span class="code-func">Draw(<span class="code-var">screen</span>)</span>
+        <span class="code-var">graphics</span>.<span class="code-func">SwapBuffer(<span class="code-var">vsync</span>)</span> <span class="code-comment">// vsync off, won't block, might cause tearing</span>
+    <span class="code-keyword">else if</span> <span class="code-var">vsync</span><span class="code-keyword">:</span>
+        <span class="code-func">sleepUntilFrameEnd()</span> <span class="code-comment">// prevent busy CPU loop</span>
+
+    <span class="code-comment">// ...</span>
+</code>
+<p>This mode is very rarely used. It's like <code>Wait For Input</code> with <code>Vsync On</code>, but much more responsive to input, as <code>Draw()</code> will not have to block due to vsync. This is strange because you seem to be both trying to be mostly idle and low-power but at the same time trying to remain very responsive to input. Well, there are some edge cases like drawing programs where this may be justified, but I won't go much into it.</p>
+<p>TODO: pseudo-code is not accounting for scheduleFrame()...</p>
+</div>
+
+	<h2>Limitations</h2>
+	<p>The <code>sleepUntilFrameEnd()</code> function may not be possible to implement and may have to be replaced with a 1 millisecond sleep or similar instead, maybe configurable by the user. Unclear.</p>
+
+	</body>
+</html>
